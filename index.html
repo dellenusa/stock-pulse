@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Stock Pulse</title>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, ui-sans-serif, system-ui, sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; min-height: 100vh; background: #090b10; color: #f4f7fb; }
+    main { width: min(980px, 100%); margin: auto; padding: 24px; }
+    .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+    .brand { font-size: 13px; font-weight: 800; letter-spacing: .16em; color: #8b98aa; text-transform: uppercase; }
+    form { display: flex; gap: 8px; }
+    input, button { border: 1px solid #252b36; border-radius: 10px; padding: 10px 12px; font: inherit; }
+    input { width: 120px; background: #11151d; color: white; text-transform: uppercase; }
+    button { background: #e8edf5; color: #0b0d12; font-weight: 750; cursor: pointer; }
+    .card { margin-top: 24px; background: linear-gradient(145deg, #11151d, #0d1016); border: 1px solid #202631; border-radius: 20px; padding: 24px; box-shadow: 0 24px 80px #0008; }
+    .identity { display: flex; align-items: baseline; gap: 10px; }
+    h1 { margin: 0; font-size: clamp(28px, 5vw, 44px); letter-spacing: -.04em; }
+    #name, #status, #asof { color: #8d99aa; }
+    .price-row { display: flex; align-items: baseline; gap: 14px; margin-top: 22px; }
+    #price { font-size: clamp(38px, 8vw, 72px); font-weight: 760; letter-spacing: -.06em; }
+    #change { font-size: 18px; font-weight: 700; }
+    .up { color: #49d99a; } .down { color: #ff677d; }
+    .ranges { display: flex; gap: 6px; margin: 24px 0 8px; overflow-x: auto; }
+    .ranges button { padding: 7px 10px; background: transparent; color: #8793a5; border-color: transparent; }
+    .ranges button.active { color: white; background: #202631; }
+    .chart { position: relative; height: 310px; }
+    canvas { width: 100%; height: 100%; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 18px; }
+    .stat { padding-top: 12px; border-top: 1px solid #252b35; }
+    .label { display: block; color: #778397; font-size: 12px; margin-bottom: 5px; }
+    .value { font-variant-numeric: tabular-nums; }
+    .foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 20px; font-size: 12px; }
+    .error { color: #ff8797; padding: 40px 0; text-align: center; }
+    @media (max-width: 620px) {
+      main { padding: 16px; } .top { align-items: flex-start; flex-direction: column; }
+      .card { padding: 18px; } .stats { grid-template-columns: repeat(2, 1fr); }
+      .chart { height: 240px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <div class="top">
+    <div class="brand">Stock Pulse</div>
+    <form id="search">
+      <input id="symbolInput" value="AAPL" aria-label="Ticker symbol" maxlength="15">
+      <button type="submit">View</button>
+    </form>
+  </div>
+  <section class="card">
+    <div class="identity"><h1 id="symbol">AAPL</h1><span id="name"></span></div>
+    <div class="price-row"><span id="price">--</span><span id="change"></span></div>
+    <div class="ranges" id="ranges"></div>
+    <div class="chart"><canvas id="chart"></canvas><div id="error" class="error" hidden></div></div>
+    <div class="stats">
+      <div class="stat"><span class="label">Day range</span><span id="dayRange" class="value">--</span></div>
+      <div class="stat"><span class="label">Previous close</span><span id="previous" class="value">--</span></div>
+      <div class="stat"><span class="label">52-week range</span><span id="yearRange" class="value">--</span></div>
+      <div class="stat"><span class="label">Market</span><span id="status" class="value">--</span></div>
+    </div>
+    <div class="foot"><span id="asof"></span><span>Market data may be delayed.</span></div>
+  </section>
+</main>
+<script>
+  const ranges = ["1d", "5d", "1mo", "3mo", "6mo", "1y", "5y"];
+  let activeSymbol = "AAPL";
+  let activeRange = "1d";
+  let currentData;
+  const $ = (id) => document.getElementById(id);
+
+  for (const range of ranges) {
+    const button = document.createElement("button");
+    button.textContent = range.toUpperCase();
+    button.type = "button";
+    button.onclick = () => load(activeSymbol, range);
+    $("ranges").append(button);
+  }
+
+  function money(value, currency = "USD") {
+    if (value == null) return "--";
+    return new Intl.NumberFormat(undefined, {
+      style: "currency", currency: currency || "USD", maximumFractionDigits: value < 10 ? 3 : 2
+    }).format(value);
+  }
+
+  function render(data) {
+    currentData = data;
+    const positive = (data.change || 0) >= 0;
+    $("symbol").textContent = data.symbol;
+    $("name").textContent = data.name === data.symbol ? "" : data.name;
+    $("price").textContent = money(data.price, data.currency);
+    $("change").textContent = `${positive ? "+" : ""}${money(data.change, data.currency)} (${positive ? "+" : ""}${data.changePercent ?? 0}%)`;
+    $("change").className = positive ? "up" : "down";
+    $("dayRange").textContent = `${money(data.dayLow, data.currency)} – ${money(data.dayHigh, data.currency)}`;
+    $("previous").textContent = money(data.previousClose, data.currency);
+    $("yearRange").textContent = `${money(data.fiftyTwoWeekLow, data.currency)} – ${money(data.fiftyTwoWeekHigh, data.currency)}`;
+    $("status").textContent = data.marketState || data.exchange || "Unknown";
+    $("asof").textContent = `As of ${new Date(data.asOf).toLocaleString()} · ${data.source}`;
+    [...$("ranges").children].forEach((button, i) => button.classList.toggle("active", ranges[i] === activeRange));
+    draw();
+  }
+
+  function draw() {
+    if (!currentData) return;
+    const canvas = $("chart");
+    const dpr = window.devicePixelRatio || 1;
+    const box = canvas.getBoundingClientRect();
+    canvas.width = box.width * dpr; canvas.height = box.height * dpr;
+    const ctx = canvas.getContext("2d"); ctx.scale(dpr, dpr);
+    const values = currentData.points.map(p => p.close);
+    if (values.length < 2) return;
+    const min = Math.min(...values), max = Math.max(...values), spread = max - min || 1;
+    const pad = 14, width = box.width - pad * 2, height = box.height - pad * 2;
+    const points = values.map((v, i) => [pad + i / (values.length - 1) * width, pad + (1 - (v - min) / spread) * height]);
+    const positive = (currentData.change || 0) >= 0;
+    const color = positive ? "#49d99a" : "#ff677d";
+    const gradient = ctx.createLinearGradient(0, 0, 0, box.height);
+    gradient.addColorStop(0, positive ? "#49d99a55" : "#ff677d55"); gradient.addColorStop(1, "#00000000");
+    ctx.beginPath(); points.forEach(([x,y], i) => i ? ctx.lineTo(x,y) : ctx.moveTo(x,y));
+    ctx.lineTo(points.at(-1)[0], box.height); ctx.lineTo(points[0][0], box.height); ctx.closePath();
+    ctx.fillStyle = gradient; ctx.fill();
+    ctx.beginPath(); points.forEach(([x,y], i) => i ? ctx.lineTo(x,y) : ctx.moveTo(x,y));
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.lineJoin = "round"; ctx.stroke();
+  }
+
+  async function load(symbol, range) {
+    activeSymbol = symbol.trim().toUpperCase(); activeRange = range; $("error").hidden = true;
+    try {
+      const response = await fetch(`/api/stock?symbol=${encodeURIComponent(activeSymbol)}&range=${activeRange}`);
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || "Could not load market data.");
+      render(data);
+    } catch (error) {
+      $("error").textContent = error.message; $("error").hidden = false;
+    }
+  }
+
+  $("search").onsubmit = (event) => { event.preventDefault(); load($("symbolInput").value, activeRange); };
+  addEventListener("resize", draw);
+
+  const toolOutput = window.openai?.toolOutput;
+  if (toolOutput?.symbol) {
+    activeSymbol = toolOutput.symbol; activeRange = toolOutput.range || "1d"; render(toolOutput);
+  } else {
+    load(activeSymbol, activeRange);
+  }
+</script>
+</body>
+</html>
