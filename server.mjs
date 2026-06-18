@@ -108,12 +108,14 @@ export async function fetchStock(symbolInput, rangeInput = "1d", fetchImpl = fet
   url.searchParams.set("events", "div,splits");
 
   const response = await fetchImpl(url, {
-    headers: {
-      "Accept": "application/json",
-      "User-Agent": "StockPulse/1.0"
-    },
-    signal: AbortSignal.timeout(8000)
-  });
+  headers: {
+    "Accept": "application/json",
+    "User-Agent": "StockPulse/1.0"
+  }
+});
+
+console.log("Fetching:", url.toString());
+console.log("Yahoo status:", response.status);
   if (!response.ok) throw new Error(`Market data provider returned HTTP ${response.status}.`);
 
   const value = summarizeChart(await response.json(), symbol, range);
